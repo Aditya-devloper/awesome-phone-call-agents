@@ -1,4 +1,3 @@
-const { randomUUID } = require("crypto");
 const { businessStore, callHistoryLog } = require("../fixtures/demoStore");
 
 const CALLE_DRY_RUN = process.env.CALLE_DRY_RUN !== "false"; // default true
@@ -67,10 +66,40 @@ const MOCK_CALL_RESULT = {
   objection_reason: "",
 };
 
+const E164_REGEX = /^\+[1-9]\d{7,14}$/;
+
+function assertValidRecipient(phone) {
+  if (!phone || typeof phone !== "string" || !E164_REGEX.test(phone)) {
+    throw new Error(`Invalid or missing recipient phone number (strict E.164 required): ${phone}`);
+  }
+  return phone;
+}
+
+const RETRYABLE_ERROR_CODES = new Set(["no_answer", "busy", "network_error"]);
+
+function mapCallStatus(call) {
+  if (call.status === "completed") return "completed";
+  const code = call.error?.code;
+  if (code && RETRYABLE_ERROR_CODES.has(code)) return code; // genuine, known transient failure
+  if (code) return "failed"; // known, non-retryable failure
+  return "ambiguous"; // unknown/uncertain outcome never auto-retry this
+}
+
+function maskPhone(phone) {
+  if (!phone || phone.length < 6) return "xxxxxx";
+  return phone.slice(0, 3) + "xxxxxx" + phone.slice(-2);
+}
+
+function maskTaskText(text, phone) {
+  if (!text || !phone) return text;
+  return text.split(phone).join(maskPhone(phone));
+}
+
 const triggerCall = async (state) => {
   console.log("triggerCall node comes");
 
-  const idempotencyKey = randomUUID();
+  const recipient = assertValidRecipient(state.leadData.phone); 
+  const idempotencyKey = `${state.leadId}:${state.requestId}:${state.attemptNumber}`;
 
   if (CALLE_DRY_RUN) {
     console.log("[dry-run] Would call CALL-E with task:", state.taskText);
@@ -83,7 +112,7 @@ const triggerCall = async (state) => {
     callHistoryLog.push({
       lead: state.leadId,
       business: state.leadData.business,
-      task_text: state.taskText,
+      task_text: maskTaskText(state.taskText, recipient),
       call_status: "completed",
       call_result: MOCK_CALL_RESULT,
       internal_cost: 0,
@@ -103,7 +132,7 @@ const triggerCall = async (state) => {
   let call;
   try {
     call = await client.calls.createAndWait(
-      { task: state.taskText, resultSchema: CALL_RESULT_SCHEMA },
+      { to: recipient, task: state.taskText, resultSchema: CALL_RESULT_SCHEMA },
       { idempotencyKey },
     );
   } catch (error) {
@@ -111,11 +140,10 @@ const triggerCall = async (state) => {
     return { callResult: null, callStatus: "rejected" };
   }
 
-  console.log("triggerCall =>", call);
+  console.log("triggerCall => status:", call.status);
   console.log("triggerCall =>", call.structuredResult);
 
-  const callStatus =
-    call.status === "completed" ? "completed" : call.error?.code || "failed";
+  const callStatus = mapCallStatus(call);
   const wasCharged = callStatus === "completed";
 
   if (wasCharged) {
@@ -126,7 +154,7 @@ const triggerCall = async (state) => {
   callHistoryLog.push({
     lead: state.leadId,
     business: state.leadData.business,
-    task_text: state.taskText,
+    task_text: maskTaskText(state.taskText, recipient),
     call_status: callStatus,
     call_result: call.structuredResult,
     internal_cost: wasCharged ? CALLE_INTERNAL_COST : 0,

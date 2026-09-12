@@ -5,7 +5,7 @@ const parsePreferredDay = (text) => {
   if (!text) return null;
 
   const parsedDate = chrono.parseDate(text, new Date(), { forwardDate: true });
-  // forwardDate: true —  date ko hamesha future mein resolve karega, past mein nahi
+  // forwardDate: true —  always resolve date in future not past
 
   return parsedDate || null;
 };
@@ -143,12 +143,31 @@ const markHot = async (state) => {
     },
   });
 
-  // TODO: Actual notification (email/push/Slack) to assigned salesperson
+  // Actual notification (email/push/Slack) to assigned salesperson
   console.log(
     `HOT lead alert: ${lead.name} (${lead._id}) needs human follow-up`,
   );
   return {};
 };
+
+const markNeedsReview = async (state) => {
+  console.log("markNeedsReview node comes");
+  const lead = leadStore.get(state.leadId);
+  const previousStatus = lead.status;
+
+  lead.status = "needs_review";
+
+  activityLog.push({
+    lead: state.leadId,
+    business: lead.business,
+    activity_type: "status_changed",
+    description: "AI call outcome was ambiguous halted for manual review, no automatic retry triggered",
+    metadata: { from: previousStatus, to: "needs_review", callStatus: state.callStatus },
+  });
+
+  return {};
+};
+
 
 module.exports = {
   processResult,
@@ -156,4 +175,5 @@ module.exports = {
   markNotInterested,
   scheduleFollowup,
   incrementAttempt,
+  markNeedsReview,
 };

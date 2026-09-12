@@ -10,6 +10,7 @@ const {
   scheduleFollowup,
   incrementAttempt,
   markHot,
+  markNeedsReview,
 } = require("./nodes/processResult");
 const { decideNextStep } = require("./router");
 
@@ -23,6 +24,7 @@ const workflow = new StateGraph(AgentState)
   .addNode("markHot", markHot)
   .addNode("markNotInterested", markNotInterested)
   .addNode("scheduleFollowup", scheduleFollowup)
+  .addNode("markNeedsReview", markNeedsReview )
 
   .addEdge("__start__", "fetchLead")
   .addEdge("fetchLead", "retrieveContext")
@@ -35,6 +37,7 @@ const workflow = new StateGraph(AgentState)
     mark_hot: "markHot",
     mark_not_interested: "markNotInterested",
     schedule_followup: "scheduleFollowup",
+    needs_review: "markNeedsReview",
     end: "__end__",
   })
 

@@ -6,12 +6,12 @@ const AgentState = Annotation.Root({
   userContext: Annotation({
     default: () => "",
     reducer: (_, next) => next,
-  }), // user ne jo specific instruction di
+  }), // specific instruction given by user
   retrievedContext: Annotation({
-    default: () => [], //  RAG se aaye relevant chunks (business info)
-    reducer: (_, next) => next, // naya value purane ko replace karega
+    default: () => [], //  retrieve relevant chunks form RAG (business info)
+    reducer: (_, next) => next, // new value replaces old ones
   }),
-  taskText: Annotation(), // jo CALL-E ko dena hai
+  taskText: Annotation(), // it will send to CALL-E
   callResult: Annotation(),
   callStatus: Annotation(), // "completed" | "no_answer" | "failed"
   nextAction: Annotation(),
