@@ -1,5 +1,5 @@
 const MAX_ATTEMPTS = 2;
-const RETRYABLE_STATUSES = new Set(["no_answer", "busy", "network_error"]);
+const RETRYABLE_STATUSES = new Set(["no_answer", "busy"]);
 
 const decideNextStep = (state) => {
   const { callStatus, callResult, attemptNumber } = state;

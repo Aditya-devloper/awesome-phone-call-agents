@@ -75,14 +75,13 @@ function assertValidRecipient(phone) {
   return phone;
 }
 
-const RETRYABLE_ERROR_CODES = new Set(["no_answer", "busy", "network_error"]);
+const RETRYABLE_ERROR_CODES = new Set(["no_answer", "busy"]);
 
 function mapCallStatus(call) {
   if (call.status === "completed") return "completed";
   const code = call.error?.code;
-  if (code && RETRYABLE_ERROR_CODES.has(code)) return code; // genuine, known transient failure
-  if (code) return "failed"; // known, non-retryable failure
-  return "ambiguous"; // unknown/uncertain outcome never auto-retry this
+  if (code && RETRYABLE_ERROR_CODES.has(code)) return code;
+  return "ambiguous";
 }
 
 function maskPhone(phone) {
@@ -95,10 +94,26 @@ function maskTaskText(text, phone) {
   return text.split(phone).join(maskPhone(phone));
 }
 
+const PHONE_LIKE_REGEX = /\+?\d[\d\-\s]{7,}\d/g;
+
+function maskPhoneLikeStrings(text) {
+  if (typeof text !== "string") return text;
+  return text.replace(PHONE_LIKE_REGEX, (m) => maskPhone(m.replace(/[\s-]/g, "")));
+}
+
+function maskDeep(value) {
+  if (typeof value === "string") return maskPhoneLikeStrings(value);
+  if (Array.isArray(value)) return value.map(maskDeep);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, maskDeep(v)]));
+  }
+  return value;
+}
+
 const triggerCall = async (state) => {
   console.log("triggerCall node comes");
 
-  const recipient = assertValidRecipient(state.leadData.phone); 
+  const recipient = assertValidRecipient(state.leadData.phone);
   const idempotencyKey = `${state.leadId}:${state.requestId}:${state.attemptNumber}`;
 
   if (CALLE_DRY_RUN) {
@@ -132,7 +147,11 @@ const triggerCall = async (state) => {
   let call;
   try {
     call = await client.calls.createAndWait(
-      { to: recipient, task: state.taskText, resultSchema: CALL_RESULT_SCHEMA },
+      {
+        recipients: [{ phones: [recipient] }],
+        task: state.taskText,
+        resultSchema: CALL_RESULT_SCHEMA,
+      },
       { idempotencyKey },
     );
   } catch (error) {
@@ -141,7 +160,7 @@ const triggerCall = async (state) => {
   }
 
   console.log("triggerCall => status:", call.status);
-  console.log("triggerCall =>", call.structuredResult);
+  // console.log("triggerCall =>", call.structuredResult);
 
   const callStatus = mapCallStatus(call);
   const wasCharged = callStatus === "completed";
@@ -151,19 +170,21 @@ const triggerCall = async (state) => {
     if (business) business.call_balance -= 1;
   }
 
+  const maskedResult = maskDeep(call.structuredResult);
+
   callHistoryLog.push({
     lead: state.leadId,
     business: state.leadData.business,
     task_text: maskTaskText(state.taskText, recipient),
     call_status: callStatus,
-    call_result: call.structuredResult,
+    call_result: maskedResult,
     internal_cost: wasCharged ? CALLE_INTERNAL_COST : 0,
     was_charged: wasCharged,
     attempt_number: state.attemptNumber,
     request_id: state.requestId,
   });
 
-  return { callResult: call.structuredResult, callStatus };
+  return { callResult: maskedResult, callStatus };
 };
 
 module.exports = { triggerCall };
